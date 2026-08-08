@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 
 # Local configurations and credentials
-data/
 screenshots/
 logs/
 auth_info_baileys/
@@ -12,7 +11,11 @@ chrome_user_data/
 whatsapp_config.json
 resultados.json
 last_qr.txt
-*.csv
+/*.csv
+data/login_correcto.csv
+data/login_incorrecto.csv
+data/ipgood.txt
+data/ipneg.txt
 prueba*.py
 CloudPeler/
 
