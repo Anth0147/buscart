@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local configurations and credentials
+data/
+screenshots/
+logs/
+auth_info_baileys/
+chrome_user_data/
+whatsapp_config.json
+resultados.json
+last_qr.txt
+*.csv
+prueba*.py
+CloudPeler/
+
+# Node dependencies
+node_modules/
+package-lock.json
+
+# IDEs
+.idea/
+.vscode/
