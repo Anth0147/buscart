@@ -48,6 +48,7 @@ XPATHS = {
     "btn_login":           '//*[@id="login"]',
     "error_password":      '//*[@id="claimVerificationServerError"]',
     "error_captcha":       '//*[@id="codeInput-error"]',
+    "error_captcha_magic": '//*[@id="erro-captcha"]',
 }
 
 # ============================================================
@@ -465,17 +466,24 @@ class LoginAutomation:
         return self._get_element_text(XPATHS["error_password"]).strip()
 
     def _check_error_captcha(self) -> str:
-        return self._get_element_text(XPATHS["error_captcha"]).strip()
+        err1 = self._get_element_text(XPATHS["error_captcha"]).strip()
+        err2 = self._get_element_text(XPATHS["error_captcha_magic"]).strip()
+        return err1 or err2
 
     def _take_screenshot(self, name: str) -> str:
-        """Toma captura de pantalla y retorna la ruta."""
+        """Toma captura de pantalla y retorna la ruta, adaptada para modo headless."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = self.screenshot_dir / f"{name}_{timestamp}.png"
         try:
-            self.page.screenshot(path=str(filepath), full_page=True)
-            logger.info(f"Captura: {filepath}")
+            # En modo headless, el viewport a veces no se renderiza correctamente al hacer full_page=True.
+            # Nos aseguramos de fijar el viewport del context y forzar a que cargue.
+            self.page.set_viewport_size({"width": 1366, "height": 768})
+            time.sleep(0.5) # Pequeño respiro para renderizado
+            self.page.screenshot(path=str(filepath), full_page=False) # Usar full_page=False es más seguro en headless
+            logger.info(f"Captura guardada en: {filepath}")
             return str(filepath)
-        except:
+        except Exception as e:
+            logger.error(f"⚠️ Error tomando captura de pantalla ({name}): {e}")
             return ""
 
     # ------------------------------------------------------------
@@ -652,18 +660,33 @@ class LoginAutomation:
                         return result
                     captcha_b64 = self._get_captcha_image_b64()
 
-                if captcha_b64:
-                    if captcha_resolver and callable(captcha_resolver):
-                        captcha_text = captcha_resolver(captcha_b64)
-                    else:
-                        logger.info(f"📷 CAPTCHA (intento {retry+1}/{max_retries_captcha})")
-                        captcha_text = input("Ingrese el valor del captcha: ").strip()
+                # Requisito 2: Si el captcha no se pudo encontrar tras los intentos, abortar para reintentar con la misma IP
+                if not captcha_b64:
+                    result["error"] = "No se encontró captcha, intentando continuar..."
+                    logger.warning("⚠️ No se pudo obtener la imagen base64 del captcha. Abortando intento.")
+                    return result
 
-                    if captcha_text:
-                        self._wait_and_fill(XPATHS["codeInput"], captcha_text)
-                        time.sleep(0.2)
+                captcha_text = ""
+                if captcha_resolver and callable(captcha_resolver):
+                    # Resolver captcha
+                    raw_text = captcha_resolver(captcha_b64) or ""
+                    # Filtrar solo dígitos y validar que sean exactamente 4
+                    digits_only = "".join([c for c in raw_text if c.isdigit()])
+                    if len(digits_only) == 4:
+                        captcha_text = digits_only
+                        logger.info(f"✅ Resolutor captcha devolvió 4 dígitos válidos: [{captcha_text}]")
+                    else:
+                        logger.warning(f"⚠️ Captcha resuelto tiene longitud o caracteres incorrectos: '{raw_text}'. Recargando...")
+                        self._click_captcha_reload()
+                        time.sleep(random.uniform(1.0, 1.8))
+                        continue
                 else:
-                    logger.warning("No se encontró captcha, intentando continuar...")
+                    logger.info(f"📷 CAPTCHA (intento {retry+1}/{max_retries_captcha})")
+                    captcha_text = input("Ingrese el valor del captcha: ").strip()
+
+                if captcha_text:
+                    self._wait_and_fill(XPATHS["codeInput"], captcha_text)
+                    time.sleep(0.2)
 
                 self._wait_and_click(XPATHS["btn_continuar"])
                 time.sleep(1.5)

