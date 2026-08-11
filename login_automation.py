@@ -670,13 +670,32 @@ class LoginAutomation:
                 if captcha_resolver and callable(captcha_resolver):
                     # Resolver captcha
                     raw_text = captcha_resolver(captcha_b64) or ""
+                    
+                    # Corrección temprana de similitud: mapear caracteres visualmente similares que suelen ser números
+                    # Reemplazamos 'D' o 'd' por '0', 'O' u 'o' por '0', 'I' o 'l' por '1', etc.
+                    mapped_text = ""
+                    for char in raw_text:
+                        c_upper = char.upper()
+                        if c_upper == 'D' or c_upper == 'O':
+                            mapped_text += '0'
+                        elif c_upper == 'I' or c_upper == 'L':
+                            mapped_text += '1'
+                        elif c_upper == 'Z':
+                            mapped_text += '2'
+                        elif c_upper == 'S':
+                            mapped_text += '5'
+                        elif c_upper == 'B':
+                            mapped_text += '8'
+                        else:
+                            mapped_text += char
+
                     # Filtrar solo dígitos y validar que sean exactamente 4
-                    digits_only = "".join([c for c in raw_text if c.isdigit()])
+                    digits_only = "".join([c for c in mapped_text if c.isdigit()])
                     if len(digits_only) == 4:
                         captcha_text = digits_only
-                        logger.info(f"✅ Resolutor captcha devolvió 4 dígitos válidos: [{captcha_text}]")
+                        logger.info(f"✅ Resolutor captcha mapeado y verificado (4 dígitos): [{captcha_text}]")
                     else:
-                        logger.warning(f"⚠️ Captcha resuelto tiene longitud o caracteres incorrectos: '{raw_text}'. Recargando...")
+                        logger.warning(f"⚠️ Captcha resuelto '{raw_text}' (mapeado: '{mapped_text}') no cumple con 4 dígitos. Recargando...")
                         self._click_captcha_reload()
                         time.sleep(random.uniform(1.0, 1.8))
                         continue
