@@ -1,0 +1,41 @@
+# Byte-compiled / optimizaciones Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Logs y capturas
+logs/
+*.log
+screenshots/
+
+# Sesiones locales y credenciales WhatsApp
+datawp/whatsapp_session/
+datawp/whatsapp_config.json
+auth_info_baileys/
+chrome_user_data/
+last_qr.txt
+
+# Resultados temporales y estado de ejecución
+resultados.json
+data/estado_ejecucion.json
+data/ipgood.txt
+data/ipneg.txt
+data/login_correcto.csv
+data/login_incorrecto.csv
+data/teletrabajo_exitosos.csv
+data/teletrabajo_incorrectos.csv
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
