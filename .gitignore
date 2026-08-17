@@ -13,6 +13,7 @@ screenshots/
 # Sesiones locales y credenciales WhatsApp
 datawp/whatsapp_session/
 datawp/whatsapp_config.json
+whatsapp_config.json
 auth_info_baileys/
 chrome_user_data/
 last_qr.txt
@@ -26,6 +27,10 @@ data/login_correcto.csv
 data/login_incorrecto.csv
 data/teletrabajo_exitosos.csv
 data/teletrabajo_incorrectos.csv
+
+# Node dependencies
+node_modules/
+package-lock.json
 
 # Entornos virtuales
 .venv/

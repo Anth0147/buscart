@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Sistema de Automatización y Validación de Accesos Movistar
 
 Sistema modular y concurrente para la validación de credenciales en portales de Movistar (**Visor Clientes** y **Teletrabajo**), integrado con proxies rotativos residenciales de Perú, resolución local automática de captchas, sistema de auto-recuperación ante interrupciones (Checkpoints) y notificaciones en tiempo real por WhatsApp.
@@ -137,3 +138,11 @@ buscart/
     ├── whatsapp_config.json    # Configuración de número destino
     └── whatsapp_session/       # Sesión persistente de WhatsApp Web
 ```
+=======
+# Ejecución
+
+Para ejecutar:
+```bash
+python ejecutar.py
+```
+>>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
