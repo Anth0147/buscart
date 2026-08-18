@@ -1,0 +1,11 @@
+fecha,usuario,password,resultado,ip,detalle
+2026-08-18 15:37:28,lgaonas,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:28,lgamboami,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:28,lganozasem,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:33,lgarayarr,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:33,lgaraypu,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:33,lgaraysen,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:38,lgarcesco,Operador123**,INCORRECTO,Local,Usuario inválido o contraseña incorrecta.
+2026-08-18 15:37:39,lgarciaaq,Operador123**,ERROR,Local,"Error al navegar: Page.goto: Target page, context or browser has been closed
+Call log:
+  - navigat"

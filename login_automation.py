@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from urllib.parse import urlparse
 
-<<<<<<< HEAD
 try:
     from patchright.sync_api import (
         sync_playwright,
@@ -33,15 +32,6 @@ except ImportError:
         TimeoutError as PlaywrightTimeout,
     )
 
-=======
-from patchright.sync_api import (
-    sync_playwright,
-    Browser,
-    BrowserContext,
-    Page,
-    TimeoutError as PlaywrightTimeout,
-)
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
 
 logger = logging.getLogger(__name__)
 
@@ -69,15 +59,10 @@ XPATHS = {
     "error_password":      '//*[@id="claimVerificationServerError"]',
     "error_captcha":       '//*[@id="codeInput-error"]',
     "error_captcha_magic": '//*[@id="erro-captcha"]',
-<<<<<<< HEAD
     "search_input":        '//*[@id="contenedor-buscar"]/visor-search-form/form/visor-search-bar/div/input',
 }
 
 
-=======
-}
-
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
 # ============================================================
 # INDICADORES DE WAF BLOCK
 # ============================================================
@@ -764,17 +749,12 @@ class LoginAutomation:
                 return result
 
             # ── PASO 9: Clic en login ──────────────────────────────────────
-<<<<<<< HEAD
-=======
-            # Volver a verificar error de contraseña justo antes de hacer clic en login por seguridad
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
             error_pass = self._check_error_password()
             if error_pass:
                 result["error"] = f"Contraseña incorrecta: {error_pass}"
                 return result
 
             self._wait_and_click(XPATHS["btn_login"])
-<<<<<<< HEAD
 
             # ── PASO 10: Detección instantánea de resultado ────────────────
             start_detect = time.time()
@@ -821,27 +801,10 @@ class LoginAutomation:
                 time.sleep(0.25)
 
             # Si terminó el tiempo de detección
-=======
-            time.sleep(2.5)
-
-            # ── PASO 10: Verificar resultado final ─────────────────────────
-            waf = self.check_waf_block()
-            if waf["blocked"]:
-                result["waf_blocked"] = True
-                result["error"] = waf["reason"]
-                result["screenshot"] = waf["screenshot"]
-                return result
-
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
             current_url = self.page.url
             if "visorclientes.movistar.com.pe" in current_url:
                 result["exito"] = True
                 result["url_final"] = current_url
-<<<<<<< HEAD
-=======
-                
-                # Identificar login y password en el nombre de la captura
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
                 safe_user = usuario.replace("@", "_").replace(".", "_")
                 safe_pass = contraseña.replace("@", "_").replace(".", "_")
                 result["screenshot"] = self._take_screenshot(f"exito_{safe_user}_pass_{safe_pass}")
@@ -854,10 +817,7 @@ class LoginAutomation:
                 else:
                     result["error"] = f"Login no completado. URL: {current_url[:80]}"
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 896283b8ed693c96dfe6c769ed049a4dc051282d
         except Exception as e:
             error_msg = str(e)
             result["error"] = f"Error: {error_msg[:120]}"
